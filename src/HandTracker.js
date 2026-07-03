@@ -3,6 +3,7 @@ import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 export class HandTracker{
     constructor(){
         this.handLandmarker = null;
+        this.numHands = 2;
     }
     async init(){
         const vision = await FilesetResolver.forVisionTasks(
@@ -15,7 +16,7 @@ export class HandTracker{
                 delegate:'GPU',
             },
             runningMode: 'VIDEO',
-            numHands: 2,
+            numHands: this.numHands,
         });
     }
     detect(video){
