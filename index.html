@@ -8,10 +8,46 @@
       html, body { margin: 0; height: 100%; overflow: hidden; }
       /* video { width: 100%; height: 100%; object-fit: cover; } */
       video{ display: none; }
+
+      #mode-panel {
+        position: fixed;
+        left: 50%;
+        bottom: 40px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 12px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 999px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 10;
+      }
+      #mode-panel.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #mode-panel button {
+        padding: 8px 20px;
+        border-radius: 999px;
+        border: none;
+        font: inherit;
+        background: rgba(255, 255, 255, 0.15);
+        color: white;
+      }
+      #mode-panel button.active {
+        background: white;
+        color: black;
+      }
     </style>
-    <script type="module" crossorigin src="/cam-flow/assets/index-6retrugO.js"></script>
+    <script type="module" crossorigin src="/cam-flow/assets/index-BVlJ7pFZ.js"></script>
   </head>
   <body>
     <video id="camera" autoplay playsinline muted></video>
+    <div id="mode-panel">
+      <button id="mode-fluid" type="button">Fluid</button>
+      <button id="mode-ripple" type="button">Ripple</button>
+    </div>
   </body>
 </html>
