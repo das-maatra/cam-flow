@@ -4186,14 +4186,16 @@ void main(){
   float g = texture2D(uVideo, distortedUv).g;
   float b = texture2D(uVideo, distortedUv - vec2(splitOffset, 0.0)).b;
 
-  // Teal <-> blue tint that slowly drifts over time, blended in at low
-  // opacity so the video underneath stays clearly visible.
+  // Teal <-> blue tint that slowly drifts over time, masked by fluidAmount so
+  // it only shows up where the fluid is actually moving (helps read where
+  // the effect is versus still video) and blended in at low opacity so the
+  // video underneath stays clearly visible.
   vec3 teal = vec3(0.0, 0.6, 0.55);
   vec3 blue = vec3(0.05, 0.35, 0.9);
   float tintPhase = sin(uTime * 0.3) * 0.5 + 0.5;
   vec3 tint = mix(teal, blue, tintPhase);
 
-  vec3 color = mix(vec3(r, g, b), tint, uTintStrength);
+  vec3 color = mix(vec3(r, g, b), tint, uTintStrength * fluidAmount);
 
   gl_FragColor = vec4(color, 1.0);
 }
@@ -4236,7 +4238,7 @@ void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
-`,gv=class{constructor(e){this.video=e,this.renderer=new fv({powerPreference:`high-performance`}),this.renderer.setSize(window.innerWidth,window.innerHeight),document.body.appendChild(this.renderer.domElement),this.scene=new mf,this.aspect=window.innerWidth/window.innerHeight,this.camera=new Mm(-this.aspect,this.aspect,1,-1,0,1);let t=new Up(e);t.colorSpace=Iu;let n=new Yp(2,2);this.material=new im({vertexShader:hv,fragmentShader:pv,uniforms:{uVideo:{value:t},uVelocity:{value:null},uRippleState:{value:null},uRippleTexelSize:{value:new J},uRippleStrength:{value:.5},uStrength:{value:.05},uTime:{value:0},uSplitStrength:{value:.015},uTintStrength:{value:.18}}}),this.rippleMaterial=new im({vertexShader:hv,fragmentShader:mv,uniforms:{uVideo:{value:t},uRippleState:{value:null},uTexelSize:{value:new J},uTime:{value:0},uSplitStrength:{value:.015}}}),this.quad=new jp(n,this.material),this.scene.add(this.quad)}setMode(e){this.quad.material=e===`ripple`?this.rippleMaterial:this.material}fitToVideo(){let e=this.video.videoWidth/this.video.videoHeight;this.aspect>e?this.quad.scale.y=e/this.aspect:this.quad.scale.x=this.aspect/e}mirror(){this.quad.scale.x*=-1}render(){this.renderer.render(this.scene,this.camera)}},_v=`
+`,gv=class{constructor(e){this.video=e,this.renderer=new fv({powerPreference:`high-performance`}),this.renderer.setSize(window.innerWidth,window.innerHeight),document.body.appendChild(this.renderer.domElement),this.scene=new mf,this.aspect=window.innerWidth/window.innerHeight,this.camera=new Mm(-this.aspect,this.aspect,1,-1,0,1);let t=new Up(e);t.colorSpace=Iu;let n=new Yp(2,2);this.material=new im({vertexShader:hv,fragmentShader:pv,uniforms:{uVideo:{value:t},uVelocity:{value:null},uRippleState:{value:null},uRippleTexelSize:{value:new J},uRippleStrength:{value:.5},uStrength:{value:.05},uTime:{value:0},uSplitStrength:{value:.015},uTintStrength:{value:.35}}}),this.rippleMaterial=new im({vertexShader:hv,fragmentShader:mv,uniforms:{uVideo:{value:t},uRippleState:{value:null},uTexelSize:{value:new J},uTime:{value:0},uSplitStrength:{value:.015}}}),this.quad=new jp(n,this.material),this.scene.add(this.quad)}setMode(e){this.quad.material=e===`ripple`?this.rippleMaterial:this.material}fitToVideo(){let e=this.video.videoWidth/this.video.videoHeight;this.aspect>e?this.quad.scale.y=e/this.aspect:this.quad.scale.x=this.aspect/e}mirror(){this.quad.scale.x*=-1}render(){this.renderer.render(this.scene,this.camera)}},_v=`
 varying vec2 vUv;
 
 void main(){
