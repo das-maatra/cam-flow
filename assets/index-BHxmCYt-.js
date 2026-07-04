@@ -4175,18 +4175,50 @@ void main(){
 `,mv=`
 varying vec2 vUv;
 
+uniform sampler2D uVideo;
+uniform sampler2D uRippleState;
+uniform vec2 uTexelSize;
+uniform float uTime;
+uniform float uSplitStrength;
+
+void main(){
+  vec2 ts = uTexelSize;
+
+  // Surface gradient of the wave height -> UV displacement (refraction look)
+  float wE = texture2D(uRippleState, vUv + vec2( ts.x, 0.0)).r;
+  float wW = texture2D(uRippleState, vUv - vec2( ts.x, 0.0)).r;
+  float wN = texture2D(uRippleState, vUv + vec2(0.0,  ts.y)).r;
+  float wS = texture2D(uRippleState, vUv - vec2(0.0,  ts.y)).r;
+
+  vec2 disp = vec2((wW - wE) * 3.0, (wS - wN) * 3.0);
+  vec2 distortedUv = clamp(vUv + disp, 0.001, 0.999);
+
+  // How much ripple is at this point -- scales the RGB split like composite.js
+  // does with fluid velocity.
+  float rippleAmount = clamp(length(disp) * 10.0, 0.0, 1.0);
+  float splitOffset = sin(uTime) * uSplitStrength * rippleAmount;
+
+  float r = texture2D(uVideo, distortedUv + vec2(splitOffset, 0.0)).r;
+  float g = texture2D(uVideo, distortedUv).g;
+  float b = texture2D(uVideo, distortedUv - vec2(splitOffset, 0.0)).b;
+
+  gl_FragColor = vec4(r, g, b, 1.0);
+}
+`,hv=`
+varying vec2 vUv;
+
 void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
-`,hv=class{constructor(e){this.video=e,this.renderer=new fv,this.renderer.setSize(window.innerWidth,window.innerHeight),document.body.appendChild(this.renderer.domElement),this.scene=new mf,this.aspect=window.innerWidth/window.innerHeight,this.camera=new Mm(-this.aspect,this.aspect,1,-1,0,1);let t=new Up(e);t.colorSpace=Iu;let n=new Yp(2,2);this.material=new im({vertexShader:mv,fragmentShader:pv,uniforms:{uVideo:{value:t},uVelocity:{value:null},uStrength:{value:.08},uTime:{value:0},uSplitStrength:{value:.015}}}),this.quad=new jp(n,this.material),this.scene.add(this.quad)}fitToVideo(){let e=this.video.videoWidth/this.video.videoHeight;this.aspect>e?this.quad.scale.y=e/this.aspect:this.quad.scale.x=this.aspect/e}mirror(){this.quad.scale.x*=-1}render(){this.renderer.render(this.scene,this.camera)}},gv=`
+`,gv=class{constructor(e){this.video=e,this.renderer=new fv,this.renderer.setSize(window.innerWidth,window.innerHeight),document.body.appendChild(this.renderer.domElement),this.scene=new mf,this.aspect=window.innerWidth/window.innerHeight,this.camera=new Mm(-this.aspect,this.aspect,1,-1,0,1);let t=new Up(e);t.colorSpace=Iu;let n=new Yp(2,2);this.material=new im({vertexShader:hv,fragmentShader:pv,uniforms:{uVideo:{value:t},uVelocity:{value:null},uStrength:{value:.08},uTime:{value:0},uSplitStrength:{value:.015}}}),this.rippleMaterial=new im({vertexShader:hv,fragmentShader:mv,uniforms:{uVideo:{value:t},uRippleState:{value:null},uTexelSize:{value:new J},uTime:{value:0},uSplitStrength:{value:.015}}}),this.quad=new jp(n,this.material),this.scene.add(this.quad)}setMode(e){this.quad.material=e===`ripple`?this.rippleMaterial:this.material}fitToVideo(){let e=this.video.videoWidth/this.video.videoHeight;this.aspect>e?this.quad.scale.y=e/this.aspect:this.quad.scale.x=this.aspect/e}mirror(){this.quad.scale.x*=-1}render(){this.renderer.render(this.scene,this.camera)}},_v=`
 varying vec2 vUv;
 
 void main(){
     vUv = uv;
     gl_Position = vec4(position, 1.0);
 }
-`,_v=`
+`,vv=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4202,7 +4234,7 @@ void main(){
     vec2 base = texture2D(uVelocity, vUv).xy;
     gl_FragColor = vec4(base + falloff * uValue, 0.0, 1.0);
 }
-`,vv=`
+`,yv=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4212,7 +4244,7 @@ void main() {
   vec2 vel = texture2D(uVelocity, vUv).xy;
   gl_FragColor = vec4(vel * uGain + 0.5, 0.5, 1.0);
 }
-`,yv=`
+`,bv=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4224,7 +4256,7 @@ void main(){
     vec2 coord = vUv - uDt * texture2D(uVelocity, vUv).xy;
     gl_FragColor = texture2D(uSource, coord) * uDissipation;
 }
-`,bv=`
+`,xv=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4239,7 +4271,7 @@ void main(){
     float divergence = 0.5 * ((right - left) + (top - bottom));
     gl_FragColor = vec4(divergence, 0.0, 0.0, 1.0);
 }
-`,xv=`
+`,Sv=`
 varying vec2 vUv;
 
 uniform sampler2D uPressure;
@@ -4257,7 +4289,7 @@ void main(){
     float pressure = (left + right + bottom + top - divergence) * 0.25;
     gl_FragColor = vec4(pressure, 0.0, 0.0, 1.0);
 }
-`,Sv=`
+`,Cv=`
 
 varying vec2 vUv;
 
@@ -4267,7 +4299,7 @@ uniform float uDecay;
 void main(){
     gl_FragColor = vec4(texture2D(uPressure, vUv).x * uDecay, 0.0,0.0,1.0);
 }
-`,Cv=`
+`,wv=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4284,7 +4316,7 @@ void main(){
     velocity -= 0.5 * vec2(right - left, top - bottom);
     gl_FragColor = vec4(velocity, 0.0, 1.0);
 }
-`,wv=`
+`,Tv=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4299,7 +4331,7 @@ void main() {
   float curl = 0.5 * ((right - left) - (top - bottom));
   gl_FragColor = vec4(curl, 0.0, 0.0, 1.0);
 }
-`,Tv=`
+`,Ev=`
 varying vec2 vUv;
 
 uniform sampler2D uVelocity;
@@ -4325,4 +4357,48 @@ void main() {
   velocity = clamp(velocity, vec2(-50.0), vec2(50.0));
   gl_FragColor = vec4(velocity, 0.0, 1.0);
 }
-`;function Ev(e,t){return new Dd(e,t,{type:Al,format:Rl,minFilter:bl,magFilter:bl,wrapS:hl,wrapT:hl,depthBuffer:!1,stencilBuffer:!1})}var Dv=class{constructor(e,t){this.read=Ev(e,t),this.write=Ev(e,t)}swap(){[this.read,this.write]=[this.write,this.read]}},Ov=class{constructor(e,{simResolution:t=384,pressureIterations:n=14,aspect:r=window.innerWidth/window.innerHeight}={}){this.renderer=e,this.pressureIterations=n;let i=r>=1?t:Math.round(t*r),a=r>=1?Math.round(t/r):t;this.texelSize=new J(1/i,1/a),this.aspect=i/a,this.velocity=new Dv(i,a),this.pressure=new Dv(i,a),this.divergence=Ev(i,a),this.curl=Ev(i,a),this._splatMaterial=new im({vertexShader:gv,fragmentShader:_v,uniforms:{uVelocity:{value:null},uPoint:{value:new J},uValue:{value:new J},uRadius:{value:.02},uAspectRatio:{value:this.aspect}}}),this._advectMaterial=new im({vertexShader:gv,fragmentShader:yv,uniforms:{uVelocity:{value:null},uSource:{value:null},uDt:{value:0},uDissipation:{value:.994}}}),this._curlMaterial=new im({vertexShader:gv,fragmentShader:wv,uniforms:{uVelocity:{value:null},uTexelSize:{value:this.texelSize}}}),this._vorticityConfinementMaterial=new im({vertexShader:gv,fragmentShader:Tv,uniforms:{uVelocity:{value:null},uCurl:{value:null},uTexelSize:{value:this.texelSize},uCurlStrength:{value:12},uDt:{value:0}}}),this._divergenceMaterial=new im({vertexShader:gv,fragmentShader:bv,uniforms:{uVelocity:{value:null},uTexelSize:{value:this.texelSize}}}),this._clearPressureMaterial=new im({vertexShader:gv,fragmentShader:Sv,uniforms:{uPressure:{value:null},uDecay:{value:.3}}}),this._pressureMaterial=new im({vertexShader:gv,fragmentShader:xv,uniforms:{uPressure:{value:null},uDivergence:{value:null},uTexelSize:{value:this.texelSize}}}),this._gradientSubtractMaterial=new im({vertexShader:gv,fragmentShader:Cv,uniforms:{uVelocity:{value:null},uPressure:{value:null},uTexelSize:{value:this.texelSize}}}),this._visualizeMaterial=new im({vertexShader:gv,fragmentShader:vv,uniforms:{uVelocity:{value:null},uGain:{value:1}}}),this._camera=new Mm(-1,1,1,-1,0,1),this._scene=new mf,this._quad=new jp(new Yp(2,2)),this._scene.add(this._quad)}runPass(e,t){this._quad.material=e,this.renderer.setRenderTarget(t),this.renderer.render(this._scene,this._camera),this.renderer.setRenderTarget(null)}splat(e,t,n=.02){let r=this._splatMaterial.uniforms;r.uVelocity.value=this.velocity.read.texture,r.uPoint.value.copy(e),r.uValue.value.copy(t),r.uRadius.value=n,this.runPass(this._splatMaterial,this.velocity.write),this.velocity.swap()}debugRenderVelocity(){this._visualizeMaterial.uniforms.uVelocity.value=this.velocity.read.texture,this.runPass(this._visualizeMaterial,null)}advectVelocity(e){let t=this._advectMaterial.uniforms;t.uVelocity.value=this.velocity.read.texture,t.uSource.value=this.velocity.read.texture,t.uDt.value=e,this.runPass(this._advectMaterial,this.velocity.write),this.velocity.swap()}computeCurl(){this._curlMaterial.uniforms.uVelocity.value=this.velocity.read.texture,this.runPass(this._curlMaterial,this.curl)}applyVorticityConfinement(e){let t=this._vorticityConfinementMaterial.uniforms;t.uVelocity.value=this.velocity.read.texture,t.uCurl.value=this.curl.texture,t.uDt.value=e,this.runPass(this._vorticityConfinementMaterial,this.velocity.write),this.velocity.swap()}computeDivergence(){this._divergenceMaterial.uniforms.uVelocity.value=this.velocity.read.texture,this.runPass(this._divergenceMaterial,this.divergence)}solvePressure(){this._clearPressureMaterial.uniforms.uPressure.value=this.pressure.read.texture,this.runPass(this._clearPressureMaterial,this.pressure.write),this.pressure.swap();let e=this._pressureMaterial.uniforms;e.uDivergence.value=this.divergence.texture;for(let t=0;t<this.pressureIterations;t++)e.uPressure.value=this.pressure.read.texture,this.runPass(this._pressureMaterial,this.pressure.write),this.pressure.swap()}subtractPressureGradient(){let e=this._gradientSubtractMaterial.uniforms;e.uVelocity.value=this.velocity.read.texture,e.uPressure.value=this.pressure.read.texture,this.runPass(this._gradientSubtractMaterial,this.velocity.write),this.velocity.swap()}step(e){this.computeCurl(),this.applyVorticityConfinement(e),this.advectVelocity(e),this.computeDivergence(),this.solvePressure(),this.subtractPressureGradient()}},kv=[5,9,13,17],Av=[8,12,16,20],jv=.7,Mv=3,Nv=.0015,Pv=.05;function Fv(e,t){let n=0,r=0;return t.forEach(t=>{n+=e[t].x,r+=e[t].y}),{x:n/t.length,y:r/t.length}}function Iv(e,t){let n=e.x-t.x,r=e.y-t.y;return Math.sqrt(n*n+r*r)}function Lv(e){let t=Fv(e,kv),n=Fv(e,Av);return{x:t.x+(n.x-t.x)*jv,y:t.y+(n.y-t.y)*jv}}var Rv=class{constructor(){this.previousLandmarks=[]}update(e,t,n){e.forEach((e,r)=>{let i=this.previousLandmarks[r];if(!i)return;let a=Lv(e),o=Lv(i),s={x:a.x,y:1-a.y},c={x:o.x,y:1-o.y},l=s.x-c.x,u=s.y-c.y;if(Math.sqrt(l*l+u*u)<Nv)return;let d={x:l/n*Mv,y:u/n*Mv},f=Iv(e[5],e[17]),p=f*f*Pv;t.splat(s,d,p)}),this.previousLandmarks=e.map(e=>e.map(e=>({x:e.x,y:e.y})))}},zv=500,Bv=class{constructor({initialMode:e=`fluid`,onChange:t}={}){this.mode=e,this.onChange=t,this._tapCount=0,this._tapTimer=null,this._panel=document.getElementById(`mode-panel`),this._fluidBtn=document.getElementById(`mode-fluid`),this._rippleBtn=document.getElementById(`mode-ripple`),this._fluidBtn.addEventListener(`click`,()=>this._select(`fluid`)),this._rippleBtn.addEventListener(`click`,()=>this._select(`ripple`)),document.addEventListener(`pointerdown`,()=>this._registerTap()),this._updateButtons()}_registerTap(){this._tapCount++,clearTimeout(this._tapTimer),this._tapTimer=setTimeout(()=>{this._tapCount=0},zv),this._tapCount>=3&&(this._tapCount=0,this._panel.classList.toggle(`visible`))}_select(e){e!==this.mode&&(this.mode=e,this._updateButtons(),this._panel.classList.remove(`visible`),this.onChange?.(e))}_updateButtons(){this._fluidBtn.classList.toggle(`active`,this.mode===`fluid`),this._rippleBtn.classList.toggle(`active`,this.mode===`ripple`)}},Vv=document.getElementById(`camera`),Hv=new pl(Vv),Uv=new hv(Vv),Wv=new fl,Gv=new Rv;await Wv.init(),await Hv.start(),Uv.fitToVideo(),Hv.isFrontFacing&&Uv.mirror();var Kv=new Ov(Uv.renderer,{aspect:Vv.videoWidth/Vv.videoHeight});new Bv({onChange:e=>console.log(`mode changed to`,e)});var qv=.5,Jv=performance.now(),Yv=0;function Xv(){requestAnimationFrame(Xv);let e=performance.now(),t=Math.min((e-Jv)/1e3,1/30);Jv=e,Yv+=t;let n=Wv.detect(Vv);Gv.update(n,Kv,t),Kv.step(t),Uv.material.uniforms.uVelocity.value=Kv.velocity.read.texture,Uv.material.uniforms.uTime.value=Yv*qv,Uv.render()}Xv();
+`;function Dv(e,t){return new Dd(e,t,{type:Al,format:Rl,minFilter:bl,magFilter:bl,wrapS:hl,wrapT:hl,depthBuffer:!1,stencilBuffer:!1})}var Ov=class{constructor(e,t){this.read=Dv(e,t),this.write=Dv(e,t)}swap(){[this.read,this.write]=[this.write,this.read]}},kv=class{constructor(e,{simResolution:t=384,pressureIterations:n=14,aspect:r=window.innerWidth/window.innerHeight}={}){this.renderer=e,this.pressureIterations=n;let i=r>=1?t:Math.round(t*r),a=r>=1?Math.round(t/r):t;this.texelSize=new J(1/i,1/a),this.aspect=i/a,this.velocity=new Ov(i,a),this.pressure=new Ov(i,a),this.divergence=Dv(i,a),this.curl=Dv(i,a),this._splatMaterial=new im({vertexShader:_v,fragmentShader:vv,uniforms:{uVelocity:{value:null},uPoint:{value:new J},uValue:{value:new J},uRadius:{value:.02},uAspectRatio:{value:this.aspect}}}),this._advectMaterial=new im({vertexShader:_v,fragmentShader:bv,uniforms:{uVelocity:{value:null},uSource:{value:null},uDt:{value:0},uDissipation:{value:.994}}}),this._curlMaterial=new im({vertexShader:_v,fragmentShader:Tv,uniforms:{uVelocity:{value:null},uTexelSize:{value:this.texelSize}}}),this._vorticityConfinementMaterial=new im({vertexShader:_v,fragmentShader:Ev,uniforms:{uVelocity:{value:null},uCurl:{value:null},uTexelSize:{value:this.texelSize},uCurlStrength:{value:12},uDt:{value:0}}}),this._divergenceMaterial=new im({vertexShader:_v,fragmentShader:xv,uniforms:{uVelocity:{value:null},uTexelSize:{value:this.texelSize}}}),this._clearPressureMaterial=new im({vertexShader:_v,fragmentShader:Cv,uniforms:{uPressure:{value:null},uDecay:{value:.3}}}),this._pressureMaterial=new im({vertexShader:_v,fragmentShader:Sv,uniforms:{uPressure:{value:null},uDivergence:{value:null},uTexelSize:{value:this.texelSize}}}),this._gradientSubtractMaterial=new im({vertexShader:_v,fragmentShader:wv,uniforms:{uVelocity:{value:null},uPressure:{value:null},uTexelSize:{value:this.texelSize}}}),this._visualizeMaterial=new im({vertexShader:_v,fragmentShader:yv,uniforms:{uVelocity:{value:null},uGain:{value:1}}}),this._camera=new Mm(-1,1,1,-1,0,1),this._scene=new mf,this._quad=new jp(new Yp(2,2)),this._scene.add(this._quad)}runPass(e,t){this._quad.material=e,this.renderer.setRenderTarget(t),this.renderer.render(this._scene,this._camera),this.renderer.setRenderTarget(null)}splat(e,t,n=.02){let r=this._splatMaterial.uniforms;r.uVelocity.value=this.velocity.read.texture,r.uPoint.value.copy(e),r.uValue.value.copy(t),r.uRadius.value=n,this.runPass(this._splatMaterial,this.velocity.write),this.velocity.swap()}debugRenderVelocity(){this._visualizeMaterial.uniforms.uVelocity.value=this.velocity.read.texture,this.runPass(this._visualizeMaterial,null)}advectVelocity(e){let t=this._advectMaterial.uniforms;t.uVelocity.value=this.velocity.read.texture,t.uSource.value=this.velocity.read.texture,t.uDt.value=e,this.runPass(this._advectMaterial,this.velocity.write),this.velocity.swap()}computeCurl(){this._curlMaterial.uniforms.uVelocity.value=this.velocity.read.texture,this.runPass(this._curlMaterial,this.curl)}applyVorticityConfinement(e){let t=this._vorticityConfinementMaterial.uniforms;t.uVelocity.value=this.velocity.read.texture,t.uCurl.value=this.curl.texture,t.uDt.value=e,this.runPass(this._vorticityConfinementMaterial,this.velocity.write),this.velocity.swap()}computeDivergence(){this._divergenceMaterial.uniforms.uVelocity.value=this.velocity.read.texture,this.runPass(this._divergenceMaterial,this.divergence)}solvePressure(){this._clearPressureMaterial.uniforms.uPressure.value=this.pressure.read.texture,this.runPass(this._clearPressureMaterial,this.pressure.write),this.pressure.swap();let e=this._pressureMaterial.uniforms;e.uDivergence.value=this.divergence.texture;for(let t=0;t<this.pressureIterations;t++)e.uPressure.value=this.pressure.read.texture,this.runPass(this._pressureMaterial,this.pressure.write),this.pressure.swap()}subtractPressureGradient(){let e=this._gradientSubtractMaterial.uniforms;e.uVelocity.value=this.velocity.read.texture,e.uPressure.value=this.pressure.read.texture,this.runPass(this._gradientSubtractMaterial,this.velocity.write),this.velocity.swap()}step(e){this.computeCurl(),this.applyVorticityConfinement(e),this.advectVelocity(e),this.computeDivergence(),this.solvePressure(),this.subtractPressureGradient()}},Av=`
+varying vec2 vUv;
+
+uniform sampler2D uState;
+uniform vec2 uTexelSize;
+uniform vec2 uDropPoint;
+uniform float uDropRadius;
+uniform float uDropStrength;
+uniform float uAddDrop;
+uniform float uAspectRatio;
+
+void main(){
+  vec2 ts = uTexelSize;
+
+  // R = current height, G = previous height
+  float curr = texture2D(uState, vUv).r;
+  float prev = texture2D(uState, vUv).g;
+
+  // 8-neighbour weighted average (diagonals at half weight, normalised by 6)
+  float n  = texture2D(uState, vUv + vec2( 0.0,  ts.y)).r;
+  float s  = texture2D(uState, vUv + vec2( 0.0, -ts.y)).r;
+  float e  = texture2D(uState, vUv + vec2( ts.x,  0.0)).r;
+  float w  = texture2D(uState, vUv + vec2(-ts.x,  0.0)).r;
+  float ne = texture2D(uState, vUv + vec2( ts.x,  ts.y)).r;
+  float nw = texture2D(uState, vUv + vec2(-ts.x,  ts.y)).r;
+  float se = texture2D(uState, vUv + vec2( ts.x, -ts.y)).r;
+  float sw = texture2D(uState, vUv + vec2(-ts.x, -ts.y)).r;
+
+  float avg  = ((n + s + e + w) + 0.5 * (ne + nw + se + sw)) / 6.0;
+  float c2   = 0.4;
+  float next = c2 * avg + (2.0 - c2) * curr - prev;
+  next *= 0.988;
+
+  if (uAddDrop > 0.5) {
+    vec2 p = vUv - uDropPoint;
+    p.x *= uAspectRatio;
+    float d = length(p);
+    if (d < uDropRadius) {
+      next += uDropStrength * (1.0 - d / uDropRadius);
+    }
+  }
+
+  gl_FragColor = vec4(next, curr, 0.0, 1.0);
+}
+`;function jv(e,t){return new Dd(e,t,{type:Al,format:Rl,minFilter:bl,magFilter:bl,wrapS:hl,wrapT:hl,depthBuffer:!1,stencilBuffer:!1})}var Mv=class{constructor(e,t){this.read=jv(e,t),this.write=jv(e,t)}swap(){[this.read,this.write]=[this.write,this.read]}},Nv=class{constructor(e,{simResolution:t=384,aspect:n=window.innerWidth/window.innerHeight}={}){this.renderer=e;let r=n>=1?t:Math.round(t*n),i=n>=1?Math.round(t/n):t;this.texelSize=new J(1/r,1/i),this.aspect=r/i,this.state=new Mv(r,i),this._simMaterial=new im({vertexShader:_v,fragmentShader:Av,uniforms:{uState:{value:null},uTexelSize:{value:this.texelSize},uDropPoint:{value:new J(-1,-1)},uDropRadius:{value:.03},uDropStrength:{value:0},uAddDrop:{value:0},uAspectRatio:{value:this.aspect}}}),this._camera=new Mm(-1,1,1,-1,0,1),this._scene=new mf,this._quad=new jp(new Yp(2,2)),this._scene.add(this._quad)}runPass(e,t){this._quad.material=e,this.renderer.setRenderTarget(t),this.renderer.render(this._scene,this._camera),this.renderer.setRenderTarget(null)}drop(e,t,n=.03){let r=this._simMaterial.uniforms;r.uDropPoint.value.copy(e),r.uDropStrength.value=t,r.uDropRadius.value=n,r.uAddDrop.value=1}step(){let e=this._simMaterial.uniforms;e.uState.value=this.state.read.texture,this.runPass(this._simMaterial,this.state.write),this.state.swap(),e.uAddDrop.value=0}},Pv=[5,9,13,17],Fv=[8,12,16,20],Iv=.7,Lv=3,Rv=.0015,zv=.05,Bv=.05,Vv=1.2;function Hv(e,t){let n=0,r=0;return t.forEach(t=>{n+=e[t].x,r+=e[t].y}),{x:n/t.length,y:r/t.length}}function Uv(e,t){let n=e.x-t.x,r=e.y-t.y;return Math.sqrt(n*n+r*r)}function Wv(e){let t=Hv(e,Pv),n=Hv(e,Fv);return{x:t.x+(n.x-t.x)*Iv,y:t.y+(n.y-t.y)*Iv}}var Gv=class{constructor(){this.previousLandmarks=[]}update(e,t,n,r){e.forEach((e,i)=>{let a=this.previousLandmarks[i];if(!a)return;let o=Wv(e),s=Wv(a),c={x:o.x,y:1-o.y},l={x:s.x,y:1-s.y},u=c.x-l.x,d=c.y-l.y;if(Math.sqrt(u*u+d*d)<Rv)return;let f={x:u/r*Lv,y:d/r*Lv},p=Uv(e[5],e[17]),m=p*p*zv;t.splat(c,f,m);let h=Math.sqrt(f.x*f.x+f.y*f.y),g=Math.min(h*Bv,Vv);n.drop(c,g,m)}),this.previousLandmarks=e.map(e=>e.map(e=>({x:e.x,y:e.y})))}},Kv=500,qv=class{constructor({initialMode:e=`fluid`,onChange:t}={}){this.mode=e,this.onChange=t,this._tapCount=0,this._tapTimer=null,this._panel=document.getElementById(`mode-panel`),this._fluidBtn=document.getElementById(`mode-fluid`),this._rippleBtn=document.getElementById(`mode-ripple`),this._fluidBtn.addEventListener(`click`,()=>this._select(`fluid`)),this._rippleBtn.addEventListener(`click`,()=>this._select(`ripple`)),document.addEventListener(`pointerdown`,()=>this._registerTap()),this._updateButtons()}_registerTap(){this._tapCount++,clearTimeout(this._tapTimer),this._tapTimer=setTimeout(()=>{this._tapCount=0},Kv),this._tapCount>=3&&(this._tapCount=0,this._panel.classList.toggle(`visible`))}_select(e){e!==this.mode&&(this.mode=e,this._updateButtons(),this._panel.classList.remove(`visible`),this.onChange?.(e))}_updateButtons(){this._fluidBtn.classList.toggle(`active`,this.mode===`fluid`),this._rippleBtn.classList.toggle(`active`,this.mode===`ripple`)}},Jv=document.getElementById(`camera`),Yv=new pl(Jv),Xv=new gv(Jv),Zv=new fl,Qv=new Gv;await Zv.init(),await Yv.start(),Xv.fitToVideo(),Yv.isFrontFacing&&Xv.mirror();var $v=new kv(Xv.renderer,{aspect:Jv.videoWidth/Jv.videoHeight}),ey=new Nv(Xv.renderer,{aspect:Jv.videoWidth/Jv.videoHeight});new qv({onChange:e=>Xv.setMode(e)});var ty=.5,ny=performance.now(),ry=0;function iy(){requestAnimationFrame(iy);let e=performance.now(),t=Math.min((e-ny)/1e3,1/30);ny=e,ry+=t;let n=Zv.detect(Jv);Qv.update(n,$v,ey,t),$v.step(t),ey.step(),Xv.material.uniforms.uVelocity.value=$v.velocity.read.texture,Xv.material.uniforms.uTime.value=ry*ty,Xv.rippleMaterial.uniforms.uRippleState.value=ey.state.read.texture,Xv.rippleMaterial.uniforms.uTexelSize.value.copy(ey.texelSize),Xv.rippleMaterial.uniforms.uTime.value=ry*ty,Xv.render()}iy();
