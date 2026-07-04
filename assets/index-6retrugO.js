@@ -4179,7 +4179,7 @@ void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
-`,hv=class{constructor(e){this.video=e,this.renderer=new fv,this.renderer.setSize(window.innerWidth,window.innerHeight),document.body.appendChild(this.renderer.domElement),this.scene=new mf,this.aspect=window.innerWidth/window.innerHeight,this.camera=new Mm(-this.aspect,this.aspect,1,-1,0,1);let t=new Up(e);t.colorSpace=Iu;let n=new Yp(2,2);this.material=new im({vertexShader:mv,fragmentShader:pv,uniforms:{uVideo:{value:t},uVelocity:{value:null},uStrength:{value:.08},uTime:{value:0},uSplitStrength:{value:.06}}}),this.quad=new jp(n,this.material),this.scene.add(this.quad)}fitToVideo(){let e=this.video.videoWidth/this.video.videoHeight;this.aspect>e?this.quad.scale.y=e/this.aspect:this.quad.scale.x=this.aspect/e}mirror(){this.quad.scale.x*=-1}render(){this.renderer.render(this.scene,this.camera)}},gv=`
+`,hv=class{constructor(e){this.video=e,this.renderer=new fv,this.renderer.setSize(window.innerWidth,window.innerHeight),document.body.appendChild(this.renderer.domElement),this.scene=new mf,this.aspect=window.innerWidth/window.innerHeight,this.camera=new Mm(-this.aspect,this.aspect,1,-1,0,1);let t=new Up(e);t.colorSpace=Iu;let n=new Yp(2,2);this.material=new im({vertexShader:mv,fragmentShader:pv,uniforms:{uVideo:{value:t},uVelocity:{value:null},uStrength:{value:.08},uTime:{value:0},uSplitStrength:{value:.015}}}),this.quad=new jp(n,this.material),this.scene.add(this.quad)}fitToVideo(){let e=this.video.videoWidth/this.video.videoHeight;this.aspect>e?this.quad.scale.y=e/this.aspect:this.quad.scale.x=this.aspect/e}mirror(){this.quad.scale.x*=-1}render(){this.renderer.render(this.scene,this.camera)}},gv=`
 varying vec2 vUv;
 
 void main(){
