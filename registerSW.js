@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/cam-flow/sw.js', { scope: '/cam-flow/' })})}
