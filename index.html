@@ -67,27 +67,26 @@
         flex: 1;
       }
       #panel-toggle {
-        position: fixed;
-        top: max(16px, env(safe-area-inset-top));
-        right: max(16px, env(safe-area-inset-right));
-        width: 36px;
-        height: 36px;
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 30px;
+        height: 30px;
         border-radius: 50%;
         border: none;
         font: inherit;
-        font-size: 18px;
+        font-size: 16px;
         line-height: 1;
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(255, 255, 255, 0.15);
         color: white;
-        z-index: 11;
       }
     </style>
-    <script type="module" crossorigin src="/cam-flow/assets/index-Cz8MEtuf.js"></script>
+    <script type="module" crossorigin src="/cam-flow/assets/index-C1KvNhrE.js"></script>
   <link rel="manifest" href="/cam-flow/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/cam-flow/registerSW.js"></script></head>
   <body>
     <video id="camera" autoplay playsinline muted></video>
-    <button id="panel-toggle" type="button" aria-label="Show/hide controls">&times;</button>
     <div id="mode-panel">
+      <button id="panel-toggle" type="button" aria-label="Hide controls">&times;</button>
       <button id="mode-fluid" type="button">Fluid</button>
       <button id="mode-ripple" type="button">Ripple</button>
       <button id="mode-combined" type="button">Combined</button>
@@ -96,7 +95,7 @@
       <button id="multi-finger-toggle" type="button">Multi Finger</button>
       <button id="camera-toggle" type="button">Switch Camera</button>
       <label class="slider-control">
-        <span>Single/Combined Radius</span>
+        <span>Single finger radius</span>
         <input id="single-radius-slider" type="range" min="0.25" max="3" step="0.05" value="1" />
       </label>
       <label class="slider-control">
