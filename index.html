@@ -66,11 +66,27 @@
       #mode-panel .slider-control input[type="range"] {
         flex: 1;
       }
+      #panel-toggle {
+        position: fixed;
+        top: max(16px, env(safe-area-inset-top));
+        right: max(16px, env(safe-area-inset-right));
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: none;
+        font: inherit;
+        font-size: 18px;
+        line-height: 1;
+        background: rgba(0, 0, 0, 0.5);
+        color: white;
+        z-index: 11;
+      }
     </style>
-    <script type="module" crossorigin src="/cam-flow/assets/index-55Cb_86d.js"></script>
+    <script type="module" crossorigin src="/cam-flow/assets/index-Cz8MEtuf.js"></script>
   <link rel="manifest" href="/cam-flow/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/cam-flow/registerSW.js"></script></head>
   <body>
     <video id="camera" autoplay playsinline muted></video>
+    <button id="panel-toggle" type="button" aria-label="Show/hide controls">&times;</button>
     <div id="mode-panel">
       <button id="mode-fluid" type="button">Fluid</button>
       <button id="mode-ripple" type="button">Ripple</button>
