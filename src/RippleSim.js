@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { vertexShader } from './shaders/passthrough.js';
 import { fragmentShader as rippleSimFragmentShader } from './shaders/ripple/rippleSim.js';
 
+// A fast drag stamps several ripples per fingertip per frame to keep the
+// trail continuous (see HandSplatter's MAX_RIPPLE_STAMPS), so this needs
+// headroom well beyond "one drop per fingertip" -- sized for 2 tracked hands
+// x 5 fingertips x up to 4 stamps each on average. Must match MAX_DROPS in
+// shaders/ripple/rippleSim.js.
+export const MAX_DROPS = 40;
+
 function createRenderTarget(width, height) {
   return new THREE.WebGLRenderTarget(width, height, {
     type: THREE.HalfFloatType,
@@ -51,11 +58,12 @@ export class RippleSim {
       uniforms: {
         uState: { value: null },
         uTexelSize: { value: this.texelSize },
-        uDropPoint: { value: new THREE.Vector2(-1, -1) },
-        uDropRadius: { value: 0.03 },
-        uDropStrength: { value: 0.0 },
-        uAddDrop: { value: 0.0 },
+        uDropPoints: { value: Array.from({ length: MAX_DROPS }, () => new THREE.Vector2(-1, -1)) },
+        uDropRadii: { value: new Array(MAX_DROPS).fill(0.03) },
+        uDropStrengths: { value: new Array(MAX_DROPS).fill(0) },
+        uDropCount: { value: 0 },
         uAspectRatio: { value: this.aspect },
+        uSmoothing: { value: 0.4 }, // wave propagation coefficient -- higher spreads/blends neighbours more per step
       },
     });
 
@@ -63,6 +71,11 @@ export class RippleSim {
     this._scene = new THREE.Scene();
     this._quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
     this._scene.add(this._quad);
+
+    // drop() just queues -- multiple fingertips can each call it in the same
+    // frame without stomping each other, and step() applies all of them
+    // together in its single pass.
+    this._pendingDrops = [];
   }
 
   runPass(material, target) {
@@ -73,20 +86,28 @@ export class RippleSim {
   }
 
   drop(point, strength, radius = 0.03) {
-    const uniforms = this._simMaterial.uniforms;
-    uniforms.uDropPoint.value.copy(point);
-    uniforms.uDropStrength.value = strength;
-    uniforms.uDropRadius.value = radius;
-    uniforms.uAddDrop.value = 1.0;
+    if (this._pendingDrops.length >= MAX_DROPS) return; // extra simultaneous drops beyond MAX_DROPS this frame are dropped rather than silently overwriting earlier ones
+    this._pendingDrops.push({ point, strength, radius });
+  }
+
+  setSmoothing(value) {
+    this._simMaterial.uniforms.uSmoothing.value = value;
   }
 
   step() {
     const uniforms = this._simMaterial.uniforms;
     uniforms.uState.value = this.state.read.texture;
 
+    uniforms.uDropCount.value = this._pendingDrops.length;
+    this._pendingDrops.forEach(({ point, strength, radius }, i) => {
+      uniforms.uDropPoints.value[i].set(point.x, point.y);
+      uniforms.uDropStrengths.value[i] = strength;
+      uniforms.uDropRadii.value[i] = radius;
+    });
+
     this.runPass(this._simMaterial, this.state.write);
     this.state.swap();
 
-    uniforms.uAddDrop.value = 0.0;
+    this._pendingDrops = [];
   }
 }

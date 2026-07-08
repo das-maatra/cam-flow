@@ -45,9 +45,12 @@ class DoubleFBO {
 }
 
 export class FluidSim {
-  constructor(renderer, { simResolution = 256, pressureIterations = 14, aspect = window.innerWidth / window.innerHeight } = {}) {
+  constructor(renderer, { simResolution = 256, pressureIterations = 20, aspect = window.innerWidth / window.innerHeight } = {}) {
     this.renderer = renderer;
     this.pressureIterations = pressureIterations;
+    // Live-tunable from the UI slider -- scales how fast the flow drifts
+    // across the screen, on top of the tuned base advection speed.
+    this.speedMultiplier = 1;
 
     // A NaN/zero/negative aspect (e.g. from a video whose dimensions weren't
     // ready yet) would otherwise poison texel size and render target
@@ -83,7 +86,7 @@ export class FluidSim {
         uVelocity: { value: null },
         uSource: { value: null },
         uDt: { value: 0 },
-        uDissipation: { value: 0.9995 },
+        uDissipation: { value: 0.997 },
       },
     });
 
@@ -193,10 +196,11 @@ export class FluidSim {
     const uniforms = this._advectMaterial.uniforms;
     uniforms.uVelocity.value = this.velocity.read.texture;
     uniforms.uSource.value = this.velocity.read.texture;
-    // Scaled up slightly from the real dt so the flow moves a bit faster
-    // across the screen, independent of dissipation (lifespan) and curl
-    // strength (energy/roundness).
-    uniforms.uDt.value = dt * 0.92;
+    // Scaled down from the real dt so the flow drifts across the screen at a
+    // slower, more graceful pace, independent of dissipation (lifespan) and
+    // curl strength (energy/roundness). speedMultiplier is the live UI knob
+    // on top of that tuned base pace.
+    uniforms.uDt.value = dt * 0.6 * this.speedMultiplier;
 
     this.runPass(this._advectMaterial, this.velocity.write);
     this.velocity.swap();

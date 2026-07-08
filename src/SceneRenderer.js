@@ -31,6 +31,13 @@ export class SceneRenderer {
     const videoTexture = new THREE.VideoTexture(video);
     videoTexture.colorSpace = THREE.SRGBColorSpace;
 
+    // Placeholder for uPersonMask until BodySegmenter produces a real one --
+    // an all-zero mask means "no person detected anywhere", which is the
+    // correct fallback (effect shows everywhere, nothing punched out) rather
+    // than leaving the sampler unbound.
+    const blankMaskTexture = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+    blankMaskTexture.needsUpdate = true;
+
     const geometry = new THREE.PlaneGeometry(2, 2);
     this.material = new THREE.ShaderMaterial({
       vertexShader,
@@ -45,6 +52,7 @@ export class SceneRenderer {
         uTime: { value: 0 },
         uSplitStrength: { value: 0.015 },
         uTintStrength: { value: 0 },
+        uPersonMask: { value: blankMaskTexture },
       },
     });
     this.rippleMaterial = new THREE.ShaderMaterial({
@@ -56,6 +64,7 @@ export class SceneRenderer {
         uTexelSize: { value: new THREE.Vector2() },
         uTime: { value: 0 },
         uSplitStrength: { value: 0.015 },
+        uPersonMask: { value: blankMaskTexture },
       },
     });
     this.quad = new THREE.Mesh(geometry, this.material);
@@ -64,14 +73,26 @@ export class SceneRenderer {
 
   setMode(mode) {
     this.quad.material = mode === 'ripple' ? this.rippleMaterial : this.material;
+    // Fluid mode treats the ripple as a faint trailing layer behind the
+    // fluid; Combined mode is meant to read as both effects together, so the
+    // same gradient-displacement math gets a much stronger weight.
+    this.material.uniforms.uRippleStrength.value = mode === 'combined' ? 1.4 : 0.5;
   }
 
   fitToVideo() {
     const videoAspect = this.video.videoWidth / this.video.videoHeight;
+    // Quad's on-screen pixel aspect ratio equals scale.x/scale.y directly
+    // (the ortho camera/screen mapping is isotropic), so both axes must be
+    // set on every call -- leaving one at a stale value breaks the fit.
+    // This is a "cover" fit (fills the screen, crops overflow, like a normal
+    // camera app) rather than "contain" -- the axis that would otherwise
+    // leave a gap is overscaled instead of the other axis being shrunk.
     if (this.aspect > videoAspect) {
-      this.quad.scale.y = videoAspect / this.aspect;
+      this.quad.scale.x = this.aspect;
+      this.quad.scale.y = this.aspect / videoAspect;
     } else {
-      this.quad.scale.x = this.aspect / videoAspect;
+      this.quad.scale.x = videoAspect;
+      this.quad.scale.y = 1;
     }
   }
 

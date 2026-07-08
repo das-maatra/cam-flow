@@ -2,12 +2,28 @@ export class CameraFeed {
   constructor(video) {
     this.video = video;
     this.isFrontFacing = false;
+    this.facingMode = 'environment';
+    this.onSwitch = null;
   }
 
   async start() {
+    await this._openStream(this.facingMode);
+  }
+
+  async switchCamera() {
+    this.facingMode = this.facingMode === 'environment' ? 'user' : 'environment';
+    await this._openStream(this.facingMode);
+    this.onSwitch?.();
+  }
+
+  async _openStream(facingMode) {
     try {
+      // Release the previous camera before requesting a new one -- otherwise
+      // some phones hold both open and the second getUserMedia() call hangs.
+      this.video.srcObject?.getTracks().forEach((track) => track.stop());
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: { facingMode },
       });
       this.video.srcObject = stream;
       await this.video.play();

@@ -8,9 +8,9 @@ export default defineConfig({
             registerType: 'autoUpdate',
             workbox: {
                 // Explicit rather than relying on Workbox's default extension list,
-                // which doesn't cover .wasm/.task -- without these the mediapipe
-                // assets would silently be left out of the precache.
-                globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,task}'],
+                // which doesn't cover .wasm/.task/.tflite -- without these the
+                // mediapipe assets would silently be left out of the precache.
+                globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,task,tflite}'],
                 // The mediapipe wasm binaries (~11MB each) are well over Workbox's
                 // default 2MB precache limit -- without raising this they'd
                 // silently get skipped and the app would fall back to fetching

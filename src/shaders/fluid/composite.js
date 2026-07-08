@@ -10,6 +10,7 @@ uniform float uStrength;
 uniform float uTime;
 uniform float uSplitStrength;
 uniform float uTintStrength;
+uniform sampler2D uPersonMask;
 
 void main(){
   vec2 velocity = texture2D(uVelocity, vUv).xy;
@@ -49,6 +50,13 @@ void main(){
   vec3 tint = mix(teal, blue, tintPhase);
 
   vec3 color = mix(vec3(r, g, b), tint, uTintStrength * fluidAmount);
+
+  // Wherever the person mask says "arm/body", show the plain undistorted
+  // video instead of the effect -- keeps the person reading as a clean
+  // layer sitting on top of the fluid rather than being warped by it.
+  float personAmount = texture2D(uPersonMask, vUv).r;
+  vec3 rawVideo = texture2D(uVideo, vUv).rgb;
+  color = mix(color, rawVideo, personAmount);
 
   gl_FragColor = vec4(color, 1.0);
 }
