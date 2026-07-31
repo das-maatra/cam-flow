@@ -1,17 +1,10 @@
-export const fragmentShader = `
-varying vec2 vUv;
+import { uv, vec2, vec4, exp, dot } from 'three/tsl';
 
-uniform sampler2D uVelocity;
-uniform vec2 uPoint;
-uniform vec2 uValue;
-uniform float uRadius;
-uniform float uAspectRatio;
-
-void main(){
-    vec2 p = vUv - uPoint;
-    p.x *= uAspectRatio;
-    float falloff = exp(-dot(p,p)/uRadius);
-    vec2 base = texture2D(uVelocity, vUv).xy;
-    gl_FragColor = vec4(base + falloff * uValue, 0.0, 1.0);
-}
-`;
+// Adds a gaussian blob of velocity into the existing field.
+export const splatNode = ({ velocity, point, value, radius, aspect }) => {
+    const d = uv().sub(point);
+    // Aspect-corrected so the blob stays round on a non-square sim grid.
+    const p = vec2(d.x.mul(aspect), d.y);
+    const falloff = exp(dot(p, p).div(radius).negate());
+    return vec4(velocity.sample(uv()).xy.add(value.mul(falloff)), 0, 1);
+};

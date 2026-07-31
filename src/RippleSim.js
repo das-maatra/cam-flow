@@ -1,42 +1,17 @@
-import * as THREE from 'three';
-import { vertexShader } from './shaders/passthrough.js';
-import { fragmentShader as rippleSimFragmentShader } from './shaders/ripple/rippleSim.js';
+import * as THREE from 'three/webgpu';
+import { texture, uniform, uniformArray } from 'three/tsl';
+import { DoubleFBO } from './DoubleFBO.js';
+import { rippleSimNode } from './shaders/ripple/rippleSim.js';
 
 // A fast drag stamps several ripples per fingertip per frame to keep the
 // trail continuous (see HandSplatter's MAX_RIPPLE_STAMPS), so this needs
 // headroom well beyond "one drop per fingertip" -- sized for 2 tracked hands
-// x 5 fingertips x up to 4 stamps each on average. Must match MAX_DROPS in
-// shaders/ripple/rippleSim.js.
+// x 5 fingertips x up to 4 stamps each on average.
+//
+// Unlike the GLSL version this no longer has to be mirrored inside the shader
+// as an unrolled block count: the WGSL loop reads it from the uniform arrays'
+// length, so this constant is now the single source of truth.
 export const MAX_DROPS = 40;
-
-function createRenderTarget(width, height) {
-  return new THREE.WebGLRenderTarget(width, height, {
-    type: THREE.HalfFloatType,
-    format: THREE.RGBAFormat,
-    minFilter: THREE.LinearFilter,
-    magFilter: THREE.LinearFilter,
-    wrapS: THREE.ClampToEdgeWrapping,
-    wrapT: THREE.ClampToEdgeWrapping,
-    depthBuffer: false,
-    stencilBuffer: false,
-  });
-}
-
-class DoubleFBO {
-  constructor(renderer, width, height) {
-    this.read = createRenderTarget(width, height);
-    this.write = createRenderTarget(width, height);
-    renderer.setRenderTarget(this.read);
-    renderer.clear();
-    renderer.setRenderTarget(this.write);
-    renderer.clear();
-    renderer.setRenderTarget(null);
-  }
-
-  swap() {
-    [this.read, this.write] = [this.write, this.read];
-  }
-}
 
 export class RippleSim {
   constructor(renderer, { simResolution = 224, aspect = window.innerWidth / window.innerHeight } = {}) {
@@ -50,39 +25,35 @@ export class RippleSim {
     this.aspect = width / height;
 
     // R = current wave height, G = previous wave height
-    this.state = new DoubleFBO(renderer, width, height);
+    this.state = new DoubleFBO(width, height);
 
-    this._simMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: rippleSimFragmentShader,
-      uniforms: {
-        uState: { value: null },
-        uTexelSize: { value: this.texelSize },
-        uDropPoints: { value: Array.from({ length: MAX_DROPS }, () => new THREE.Vector2(-1, -1)) },
-        uDropRadii: { value: new Array(MAX_DROPS).fill(0.03) },
-        uDropStrengths: { value: new Array(MAX_DROPS).fill(0) },
-        uDropCount: { value: 0 },
-        uAspectRatio: { value: this.aspect },
-        uSmoothing: { value: 0.4 }, // wave propagation coefficient -- higher spreads/blends neighbours more per step
-      },
+    this._dropPoints = uniformArray(Array.from({ length: MAX_DROPS }, () => new THREE.Vector2(-1, -1)));
+    this._dropRadii = uniformArray(new Array(MAX_DROPS).fill(0.03));
+    this._dropStrengths = uniformArray(new Array(MAX_DROPS).fill(0));
+    this._dropCount = uniform(0, 'int');
+    this._smoothing = uniform(0.4); // wave propagation coefficient -- higher spreads/blends neighbours more per step
+    this._state = texture(this.state.read.texture);
+
+    this._simMaterial = new THREE.NodeMaterial();
+    this._simMaterial.fragmentNode = rippleSimNode({
+      state: this._state,
+      texelSize: uniform(this.texelSize),
+      dropPoints: this._dropPoints,
+      dropRadii: this._dropRadii,
+      dropStrengths: this._dropStrengths,
+      dropCount: this._dropCount,
+      aspect: uniform(this.aspect),
+      smoothing: this._smoothing,
     });
+    this._simMaterial.depthTest = false;
+    this._simMaterial.depthWrite = false;
 
-    this._camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    this._scene = new THREE.Scene();
-    this._quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
-    this._scene.add(this._quad);
+    this._quad = new THREE.QuadMesh();
 
     // drop() just queues -- multiple fingertips can each call it in the same
     // frame without stomping each other, and step() applies all of them
     // together in its single pass.
     this._pendingDrops = [];
-  }
-
-  runPass(material, target) {
-    this._quad.material = material;
-    this.renderer.setRenderTarget(target);
-    this.renderer.render(this._scene, this._camera);
-    this.renderer.setRenderTarget(null);
   }
 
   drop(point, strength, radius = 0.03) {
@@ -91,21 +62,26 @@ export class RippleSim {
   }
 
   setSmoothing(value) {
-    this._simMaterial.uniforms.uSmoothing.value = value;
+    this._smoothing.value = value;
   }
 
   step() {
-    const uniforms = this._simMaterial.uniforms;
-    uniforms.uState.value = this.state.read.texture;
+    this._state.value = this.state.read.texture;
+    this._dropCount.value = this._pendingDrops.length;
 
-    uniforms.uDropCount.value = this._pendingDrops.length;
     this._pendingDrops.forEach(({ point, strength, radius }, i) => {
-      uniforms.uDropPoints.value[i].set(point.x, point.y);
-      uniforms.uDropStrengths.value[i] = strength;
-      uniforms.uDropRadii.value[i] = radius;
+      this._dropPoints.array[i].set(point.x, point.y);
+      this._dropStrengths.array[i] = strength;
+      this._dropRadii.array[i] = radius;
     });
+    this._dropStrengths.needsUpdate = true;
+    this._dropRadii.needsUpdate = true;
+    this._dropPoints.needsUpdate = true;
 
-    this.runPass(this._simMaterial, this.state.write);
+    this._quad.material = this._simMaterial;
+    this.renderer.setRenderTarget(this.state.write);
+    this._quad.render(this.renderer);
+    this.renderer.setRenderTarget(null);
     this.state.swap();
 
     this._pendingDrops = [];

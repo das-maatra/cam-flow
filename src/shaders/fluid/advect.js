@@ -1,13 +1,8 @@
-export const fragmentShader = `
-varying vec2 vUv;
+import { uv } from 'three/tsl';
 
-uniform sampler2D uVelocity;
-uniform sampler2D uSource;
-uniform float uDt;
-uniform float uDissipation;
-
-void main(){
-    vec2 coord = vUv - uDt * texture2D(uVelocity, vUv).xy;
-    gl_FragColor = texture2D(uSource, coord) * uDissipation;
-}
-`
+// Semi-Lagrangian advection: trace backwards along the velocity field and
+// sample whatever was there, fading by the dissipation factor.
+export const advectNode = ({ velocity, source, dt, dissipation }) => {
+    const coord = uv().sub(velocity.sample(uv()).xy.mul(dt));
+    return source.sample(coord).mul(dissipation);
+};

@@ -1,41 +1,30 @@
-export const fragmentShader = `
-varying vec2 vUv;
+import { uv, vec2, vec3, vec4, clamp, length, mix, sin } from 'three/tsl';
+import { neighbors } from '../neighbors.js';
 
-uniform sampler2D uVideo;
-uniform sampler2D uRippleState;
-uniform vec2 uTexelSize;
-uniform float uTime;
-uniform float uSplitStrength;
-uniform sampler2D uPersonMask;
+// Ripple mode's screen pass: refracts the camera image through the wave
+// surface, with an amplitude-scaled RGB split.
+export const rippleCompositeNode = ({
+    video, rippleState, texelSize, time, splitStrength, personMask,
+}) => {
+    // Surface gradient of the wave height -> UV displacement (refraction look)
+    const w = neighbors(rippleState, texelSize);
+    const disp = vec2(w.left.r.sub(w.right.r), w.bottom.r.sub(w.top.r)).mul(4);
+    const distortedUv = clamp(uv().add(disp), 0.001, 0.999);
 
-void main(){
-  vec2 ts = uTexelSize;
+    // How much ripple is at this point -- scales the RGB split like composite.js
+    // does with fluid velocity.
+    const rippleAmount = clamp(length(disp).mul(10), 0, 1);
+    const splitOffset = sin(time).mul(splitStrength).mul(rippleAmount);
 
-  // Surface gradient of the wave height -> UV displacement (refraction look)
-  float wE = texture2D(uRippleState, vUv + vec2( ts.x, 0.0)).r;
-  float wW = texture2D(uRippleState, vUv - vec2( ts.x, 0.0)).r;
-  float wN = texture2D(uRippleState, vUv + vec2(0.0,  ts.y)).r;
-  float wS = texture2D(uRippleState, vUv - vec2(0.0,  ts.y)).r;
+    const r = video.sample(distortedUv.add(vec2(splitOffset, 0))).r;
+    const g = video.sample(distortedUv).g;
+    const b = video.sample(distortedUv.sub(vec2(splitOffset, 0))).b;
 
-  vec2 disp = vec2((wW - wE) * 4.0, (wS - wN) * 4.0);
-  vec2 distortedUv = clamp(vUv + disp, 0.001, 0.999);
+    // Wherever the person mask says "arm/body", show the plain undistorted
+    // video instead of the effect -- keeps the person reading as a clean
+    // layer sitting on top of the ripples rather than being warped by them.
+    const personAmount = personMask.sample(uv()).r;
+    const color = mix(vec3(r, g, b), video.sample(uv()).rgb, personAmount);
 
-  // How much ripple is at this point -- scales the RGB split like composite.js
-  // does with fluid velocity.
-  float rippleAmount = clamp(length(disp) * 10.0, 0.0, 1.0);
-  float splitOffset = sin(uTime) * uSplitStrength * rippleAmount;
-
-  float r = texture2D(uVideo, distortedUv + vec2(splitOffset, 0.0)).r;
-  float g = texture2D(uVideo, distortedUv).g;
-  float b = texture2D(uVideo, distortedUv - vec2(splitOffset, 0.0)).b;
-
-  // Wherever the person mask says "arm/body", show the plain undistorted
-  // video instead of the effect -- keeps the person reading as a clean
-  // layer sitting on top of the ripples rather than being warped by them.
-  float personAmount = texture2D(uPersonMask, vUv).r;
-  vec3 rawVideo = texture2D(uVideo, vUv).rgb;
-  vec3 color = mix(vec3(r, g, b), rawVideo, personAmount);
-
-  gl_FragColor = vec4(color, 1.0);
-}
-`;
+    return vec4(color, 1);
+};

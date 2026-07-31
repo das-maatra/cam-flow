@@ -1,18 +1,10 @@
-export const fragmentShader = `
-varying vec2 vUv;
+import { uv, vec2, vec4 } from 'three/tsl';
+import { neighbors } from '../neighbors.js';
 
-uniform sampler2D uVelocity;
-uniform sampler2D uPressure;
-uniform vec2 uTexelSize;
-
-void main(){
-    float left = texture2D(uPressure, vUv - vec2(uTexelSize.x, 0.0)).x;
-    float right = texture2D(uPressure, vUv + vec2(uTexelSize.x, 0.0)).x;
-    float bottom = texture2D(uPressure, vUv - vec2(0.0, uTexelSize.y)).x;
-    float top = texture2D(uPressure, vUv + vec2(0.0, uTexelSize.y)).x;
-
-    vec2 velocity = texture2D(uVelocity, vUv).xy;
-    velocity -= 0.5 * vec2(right - left, top - bottom);
-    gl_FragColor = vec4(velocity, 0.0, 1.0);
-}
-`;
+// Subtracts the pressure gradient from the velocity field, leaving it
+// divergence-free -- the step that actually makes the flow incompressible.
+export const gradientSubtractNode = ({ velocity, pressure, texelSize }) => {
+    const n = neighbors(pressure, texelSize);
+    const gradient = vec2(n.right.x.sub(n.left.x), n.top.x.sub(n.bottom.x)).mul(0.5);
+    return vec4(velocity.sample(uv()).xy.sub(gradient), 0, 1);
+};

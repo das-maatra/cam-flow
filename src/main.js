@@ -7,6 +7,7 @@ import { HandSplatter } from './HandSplatter.js';
 import { ModeToggle } from './ModeToggle.js';
 import { BodySegmenter } from './BodySegmenter.js';
 import { ParticleSystem } from './ParticleSystem.js';
+import { FpsMeter } from './FpsMeter.js';
 
 const video = document.getElementById('camera');
 
@@ -16,7 +17,9 @@ const handTracker = new HandTracker();
 const handSplatter = new HandSplatter();
 const bodySegmenter = new BodySegmenter();
 
-await Promise.all([handTracker.init(), bodySegmenter.init()]);
+// WebGPU device creation is asynchronous, so the renderer has to be awaited
+// alongside the model loads before anything can be drawn.
+await Promise.all([handTracker.init(), bodySegmenter.init(), sceneRenderer.init()]);
 await cameraFeed.start();
 sceneRenderer.fitToVideo();
 if (cameraFeed.shouldMirror) {
@@ -41,7 +44,7 @@ const rippleSim = new RippleSim(sceneRenderer.renderer, {
 });
 
 const particleSystem = new ParticleSystem({ count: 5000 });
-sceneRenderer.addToVideoPlane(particleSystem.points);
+sceneRenderer.addToVideoPlane(particleSystem.mesh);
 
 const modeToggle = new ModeToggle({
   initialMode: 'combined',
@@ -75,6 +78,14 @@ particlesBtn.classList.toggle('active', particleSystem.enabled);
 particlesBtn.addEventListener('click', () => {
   particleSystem.setEnabled(!particleSystem.enabled);
   particlesBtn.classList.toggle('active', particleSystem.enabled);
+});
+
+const fpsMeter = new FpsMeter(document.getElementById('fps-meter'));
+const fpsBtn = document.getElementById('fps-toggle');
+fpsBtn.classList.toggle('active', fpsMeter.enabled);
+fpsBtn.addEventListener('click', () => {
+  fpsMeter.setEnabled(!fpsMeter.enabled);
+  fpsBtn.classList.toggle('active', fpsMeter.enabled);
 });
 
 const cameraToggleBtn = document.getElementById('camera-toggle');
@@ -122,37 +133,55 @@ function animate() {
   lastTime = now;
   elapsedTime += dt;
 
+  // Stage timings for the FPS meter's breakdown. Hand tracking is measured on
+  // its own because it is the one stage whose cost swings with whether hands
+  // are actually in frame: MediaPipe bails out cheaply when it finds nothing,
+  // then runs the landmark model per hand once it does.
   const landmarks = handTracker.detect(video);
+  const afterHands = performance.now();
   const mode = modeToggle.mode;
-
-  handSplatter.update(landmarks, fluidSim, rippleSim, mode, dt, realDt);
 
   const personMask = bodySegmenter.segment(video);
   if (personMask) {
-    sceneRenderer.material.uniforms.uPersonMask.value = personMask;
-    sceneRenderer.rippleMaterial.uniforms.uPersonMask.value = personMask;
+    sceneRenderer.setPersonMask(personMask);
   }
+  const afterSeg = performance.now();
+
+  handSplatter.update(landmarks, fluidSim, rippleSim, mode, dt, realDt);
 
   // The ripple sim is cheap (1 pass) so it always steps -- it's the main
   // effect in ripple mode and a secondary layer in fluid/combined mode. The
   // fluid solver only steps while it's actually on screen (it's the
   // expensive one, ~19 passes per frame) -- both fluid and combined mode use it.
   rippleSim.step();
-  particleSystem.update(rippleSim);
+  particleSystem.update(rippleSim, sceneRenderer);
 
+  const u = sceneRenderer.uniforms;
   if (mode === 'fluid' || mode === 'combined') {
     fluidSim.step(dt);
-    sceneRenderer.material.uniforms.uVelocity.value = fluidSim.velocity.read.texture;
-    sceneRenderer.material.uniforms.uRippleState.value = rippleSim.state.read.texture;
-    sceneRenderer.material.uniforms.uRippleTexelSize.value.copy(rippleSim.texelSize);
-    sceneRenderer.material.uniforms.uTime.value = elapsedTime * SPLIT_SPEED;
+    u.velocity.value = fluidSim.velocity.read.texture;
+    u.rippleState.value = rippleSim.state.read.texture;
+    u.rippleTexelSize.value.copy(rippleSim.texelSize);
+    u.time.value = elapsedTime * SPLIT_SPEED;
   } else {
-    sceneRenderer.rippleMaterial.uniforms.uRippleState.value = rippleSim.state.read.texture;
-    sceneRenderer.rippleMaterial.uniforms.uTexelSize.value.copy(rippleSim.texelSize);
-    sceneRenderer.rippleMaterial.uniforms.uTime.value = elapsedTime * SPLIT_SPEED;
+    u.rippleOnlyState.value = rippleSim.state.read.texture;
+    u.rippleOnlyTexelSize.value.copy(rippleSim.texelSize);
+    u.rippleOnlyTime.value = elapsedTime * SPLIT_SPEED;
   }
 
+  const afterSim = performance.now();
   sceneRenderer.render();
+  const end = performance.now();
+
+  // Measured last so it covers the whole frame's work. `now` was taken at the
+  // top of this callback, so the difference is time spent on the main thread
+  // rather than time waiting for the next vsync.
+  fpsMeter.update(realDt, end - now, {
+    hands: afterHands - now,
+    seg: afterSeg - afterHands,
+    sim: afterSim - afterSeg,
+    draw: end - afterSim,
+  });
 }
 
 animate();

@@ -1,39 +1,30 @@
-export const fragmentShader = `
-varying vec2 vUv;
+import { uv, vec2, vec4, abs, clamp, length } from 'three/tsl';
+import { neighbors } from '../neighbors.js';
 
-uniform sampler2D uVelocity;
-uniform sampler2D uCurl;
-uniform vec2 uTexelSize;
-uniform float uCurlStrength;
-uniform float uDt;
+// Re-injects the small-scale swirl that semi-Lagrangian advection smears away.
+export const vorticityConfinementNode = ({ velocity, curl, texelSize, curlStrength, dt }) => {
+    const n = neighbors(curl, texelSize);
+    const left = abs(n.left.x);
+    const right = abs(n.right.x);
+    const bottom = abs(n.bottom.x);
+    const top = abs(n.top.x);
+    const center = n.center.x;
 
-void main() {
-  float left   = abs(texture2D(uCurl, vUv - vec2(uTexelSize.x, 0.0)).x);
-  float right  = abs(texture2D(uCurl, vUv + vec2(uTexelSize.x, 0.0)).x);
-  float bottom = abs(texture2D(uCurl, vUv - vec2(0.0, uTexelSize.y)).x);
-  float top    = abs(texture2D(uCurl, vUv + vec2(0.0, uTexelSize.y)).x);
-  float center = texture2D(uCurl, vUv).x;
+    // Larger epsilon than the textbook formula: with a near-zero epsilon, any
+    // tiny grid-noise gradient gets normalized up to full strength every frame,
+    // which is what made the curls look noisy/jagged instead of round -- and
+    // fed a runaway energy increase. This epsilon suppresses weak/noisy
+    // gradients while still fully confining strong, coherent ones.
+    const raw = vec2(top.sub(bottom), right.sub(left)).mul(0.5);
+    const normalized = raw.div(length(raw).add(0.05)).mul(curlStrength.mul(center));
+    const force = vec2(normalized.x, normalized.y.negate());
 
-  // Larger epsilon than the textbook formula: with a near-zero epsilon, any
-  // tiny grid-noise gradient gets normalized up to full strength every frame,
-  // which is what made the curls look noisy/jagged instead of round -- and
-  // fed a runaway energy increase. This epsilon suppresses weak/noisy
-  // gradients while still fully confining strong, coherent ones.
-  vec2 force = 0.5 * vec2(top - bottom, right - left);
-  force /= length(force) + 0.05;
-  force *= uCurlStrength * center;
-  force.y *= -1.0;
-
-  vec2 velocity = texture2D(uVelocity, vUv).xy;
-  velocity += force * uDt;
-  // Vorticity confinement is a feedback loop -- it re-injects energy
-  // proportional to existing curl every single frame, forever. Without a
-  // direct counterweight here, that loop can slowly accumulate over a long
-  // session (not just from new splats) until it saturates the clamp across
-  // the whole field, which is what caused the "explodes into noise after a
-  // while, starting from a random spot" bug.
-  velocity *= 0.99;
-  velocity = clamp(velocity, vec2(-12.0), vec2(12.0));
-  gl_FragColor = vec4(velocity, 0.0, 1.0);
-}
-`;
+    // Vorticity confinement is a feedback loop -- it re-injects energy
+    // proportional to existing curl every single frame, forever. Without the
+    // 0.99 counterweight here, that loop can slowly accumulate over a long
+    // session (not just from new splats) until it saturates the clamp across
+    // the whole field, which is what caused the "explodes into noise after a
+    // while, starting from a random spot" bug.
+    const next = velocity.sample(uv()).xy.add(force.mul(dt)).mul(0.99);
+    return vec4(clamp(next, vec2(-12), vec2(12)), 0, 1);
+};

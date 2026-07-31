@@ -1,11 +1,6 @@
-export const fragmentShader = `
+import { uv, vec4 } from 'three/tsl';
 
-varying vec2 vUv;
-
-uniform sampler2D uPressure;
-uniform float uDecay;
-
-void main(){
-    gl_FragColor = vec4(texture2D(uPressure, vUv).x * uDecay, 0.0,0.0,1.0);
-}
-`
+// Decays the previous frame's pressure instead of zeroing it -- warm-starting
+// the Jacobi solve from a decayed guess converges faster than starting cold.
+export const clearPressureNode = ({ pressure, decay }) =>
+    vec4(pressure.sample(uv()).x.mul(decay), 0, 0, 1);

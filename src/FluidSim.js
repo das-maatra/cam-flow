@@ -1,56 +1,30 @@
-import * as THREE from 'three';
-import { vertexShader } from './shaders/passthrough.js';
-import { fragmentShader } from './shaders/fluid/splat.js';
-import { fragmentShader as visualizeVelocityFragmentShader } from './shaders/fluid/visualizeVelocity.js';
-import { fragmentShader as advectFragmentShader } from './shaders/fluid/advect.js';
-import { fragmentShader as divergenceFragmentShader } from './shaders/fluid/divergence.js';
-import { fragmentShader as pressureFragmentShader } from './shaders/fluid/pressure.js';
-import { fragmentShader as clearPressureFragmentShader } from './shaders/fluid/clearPressure.js';
-import { fragmentShader as gradientSubtractFragmentShader } from './shaders/fluid/gradientSubtract.js';
-import { fragmentShader as curlFragmentShader } from './shaders/fluid/curl.js';
-import { fragmentShader as vorticityConfinementFragmentShader } from './shaders/fluid/vorticityConfinement.js';
+import * as THREE from 'three/webgpu';
+import { texture, uniform } from 'three/tsl';
+import { createRenderTarget, DoubleFBO } from './DoubleFBO.js';
+import { splatNode } from './shaders/fluid/splat.js';
+import { advectNode } from './shaders/fluid/advect.js';
+import { curlNode } from './shaders/fluid/curl.js';
+import { vorticityConfinementNode } from './shaders/fluid/vorticityConfinement.js';
+import { divergenceNode } from './shaders/fluid/divergence.js';
+import { clearPressureNode } from './shaders/fluid/clearPressure.js';
+import { pressureNode } from './shaders/fluid/pressure.js';
+import { gradientSubtractNode } from './shaders/fluid/gradientSubtract.js';
 
-function createRenderTarget(width, height) {
-  return new THREE.WebGLRenderTarget(width, height, {
-    type: THREE.HalfFloatType,
-    format: THREE.RGBAFormat,
-    minFilter: THREE.LinearFilter,
-    magFilter: THREE.LinearFilter,
-    wrapS: THREE.ClampToEdgeWrapping,
-    wrapT: THREE.ClampToEdgeWrapping,
-    depthBuffer: false,
-    stencilBuffer: false,
-  });
-}
-
-// Two render targets you ping-pong between: each pass reads `read` and
-// writes into `write`, then swap() flips which one is "current". Cleared
-// explicitly on creation rather than relying on implicit zero-init, since a
-// stray NaN/garbage frame here would otherwise propagate through every
-// subsequent step.
-class DoubleFBO {
-  constructor(renderer, width, height) {
-    this.read = createRenderTarget(width, height);
-    this.write = createRenderTarget(width, height);
-    renderer.setRenderTarget(this.read);
-    renderer.clear();
-    renderer.setRenderTarget(this.write);
-    renderer.clear();
-    renderer.setRenderTarget(null);
-  }
-
-  swap() {
-    [this.read, this.write] = [this.write, this.read];
-  }
+// A fullscreen pass material. NodeMaterial replaces the old ShaderMaterial +
+// hand-written passthrough vertex shader -- QuadMesh supplies the geometry and
+// the trivial vertex stage, so only the fragment graph has to be described.
+function createPassMaterial(fragmentNode) {
+  const material = new THREE.NodeMaterial();
+  material.fragmentNode = fragmentNode;
+  material.depthTest = false;
+  material.depthWrite = false;
+  return material;
 }
 
 export class FluidSim {
   constructor(renderer, { simResolution = 256, pressureIterations = 20, aspect = window.innerWidth / window.innerHeight } = {}) {
     this.renderer = renderer;
     this.pressureIterations = pressureIterations;
-    // Live-tunable from the UI slider -- scales how fast the flow drifts
-    // across the screen, on top of the tuned base advection speed.
-    this.speedMultiplier = 1;
 
     // A NaN/zero/negative aspect (e.g. from a video whose dimensions weren't
     // ready yet) would otherwise poison texel size and render target
@@ -62,188 +36,172 @@ export class FluidSim {
     this.texelSize = new THREE.Vector2(1 / width, 1 / height);
     this.aspect = width / height;
 
-    this.velocity = new DoubleFBO(renderer, width, height);
-    this.pressure = new DoubleFBO(renderer, width, height);
+    this.velocity = new DoubleFBO(width, height);
+    this.pressure = new DoubleFBO(width, height);
     this.divergence = createRenderTarget(width, height);
     this.curl = createRenderTarget(width, height);
 
-    this._splatMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uPoint: { value: new THREE.Vector2() },
-        uValue: { value: new THREE.Vector2() },
-        uRadius: { value: 0.02 },
-        uAspectRatio: { value: this.aspect },
-      },
-    });
+    // Uniform and texture nodes are built once and mutated per pass -- the
+    // node graph itself is compiled a single time, exactly like the old
+    // uniform objects were reused across frames.
+    const texelSize = uniform(this.texelSize);
+    const aspectUniform = uniform(this.aspect);
 
-    this._advectMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: advectFragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uSource: { value: null },
-        uDt: { value: 0 },
-        uDissipation: { value: 0.997 },
-      },
-    });
+    this._u = {
+      splatVelocity: texture(this.velocity.read.texture),
+      splatPoint: uniform(new THREE.Vector2()),
+      splatValue: uniform(new THREE.Vector2()),
+      splatRadius: uniform(0.02),
 
-    this._curlMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: curlFragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uTexelSize: { value: this.texelSize },
-      },
-    });
+      advectVelocity: texture(this.velocity.read.texture),
+      advectSource: texture(this.velocity.read.texture),
+      advectDt: uniform(0),
+      advectDissipation: uniform(0.997),
 
-    this._vorticityConfinementMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: vorticityConfinementFragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uCurl: { value: null },
-        uTexelSize: { value: this.texelSize },
-        uCurlStrength: { value: 17 },
-        uDt: { value: 0 },
-      },
-    });
+      curlVelocity: texture(this.velocity.read.texture),
 
-    this._divergenceMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: divergenceFragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uTexelSize: { value: this.texelSize },
-      },
-    });
+      vorticityVelocity: texture(this.velocity.read.texture),
+      vorticityCurl: texture(this.curl.texture),
+      vorticityStrength: uniform(17),
+      vorticityDt: uniform(0),
 
-    this._clearPressureMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: clearPressureFragmentShader,
-      uniforms: {
-        uPressure: { value: null },
-        uDecay: { value: 0.3 },
-      },
-    });
+      divergenceVelocity: texture(this.velocity.read.texture),
 
-    this._pressureMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: pressureFragmentShader,
-      uniforms: {
-        uPressure: { value: null },
-        uDivergence: { value: null },
-        uTexelSize: { value: this.texelSize },
-      },
-    });
+      clearPressure: texture(this.pressure.read.texture),
+      clearDecay: uniform(0.3),
 
-    this._gradientSubtractMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: gradientSubtractFragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uPressure: { value: null },
-        uTexelSize: { value: this.texelSize },
-      },
-    });
+      pressure: texture(this.pressure.read.texture),
+      pressureDivergence: texture(this.divergence.texture),
 
-    // Temporary debug aid: renders the raw velocity field to the screen so
-    // we can confirm splats work before wiring up advection/pressure/composite.
-    this._visualizeMaterial = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader: visualizeVelocityFragmentShader,
-      uniforms: {
-        uVelocity: { value: null },
-        uGain: { value: 1.0 },
-      },
-    });
+      gradientVelocity: texture(this.velocity.read.texture),
+      gradientPressure: texture(this.pressure.read.texture),
+    };
 
-    // A reusable fullscreen quad for running each simulation pass: we swap
-    // its material out per-pass and render it into a target render target
-    // instead of the screen.
-    this._camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    this._scene = new THREE.Scene();
-    this._quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
-    this._scene.add(this._quad);
+    // Live-tunable from the UI slider -- scales how fast the flow drifts
+    // across the screen, on top of the tuned base advection speed.
+    this.speedMultiplier = 1;
+
+    this._splatMaterial = createPassMaterial(splatNode({
+      velocity: this._u.splatVelocity,
+      point: this._u.splatPoint,
+      value: this._u.splatValue,
+      radius: this._u.splatRadius,
+      aspect: aspectUniform,
+    }));
+
+    this._advectMaterial = createPassMaterial(advectNode({
+      velocity: this._u.advectVelocity,
+      source: this._u.advectSource,
+      dt: this._u.advectDt,
+      dissipation: this._u.advectDissipation,
+    }));
+
+    this._curlMaterial = createPassMaterial(curlNode({
+      velocity: this._u.curlVelocity,
+      texelSize,
+    }));
+
+    this._vorticityConfinementMaterial = createPassMaterial(vorticityConfinementNode({
+      velocity: this._u.vorticityVelocity,
+      curl: this._u.vorticityCurl,
+      texelSize,
+      curlStrength: this._u.vorticityStrength,
+      dt: this._u.vorticityDt,
+    }));
+
+    this._divergenceMaterial = createPassMaterial(divergenceNode({
+      velocity: this._u.divergenceVelocity,
+      texelSize,
+    }));
+
+    this._clearPressureMaterial = createPassMaterial(clearPressureNode({
+      pressure: this._u.clearPressure,
+      decay: this._u.clearDecay,
+    }));
+
+    this._pressureMaterial = createPassMaterial(pressureNode({
+      pressure: this._u.pressure,
+      divergence: this._u.pressureDivergence,
+      texelSize,
+    }));
+
+    this._gradientSubtractMaterial = createPassMaterial(gradientSubtractNode({
+      velocity: this._u.gradientVelocity,
+      pressure: this._u.gradientPressure,
+      texelSize,
+    }));
+
+    this._quad = new THREE.QuadMesh();
   }
 
+  // Leaves the render target bound rather than unbinding after every pass --
+  // step() runs 26 of these, and the old code paid for an unbind on each one
+  // when only the final reset before screen rendering actually matters.
   runPass(material, target) {
     this._quad.material = material;
     this.renderer.setRenderTarget(target);
-    this.renderer.render(this._scene, this._camera);
-    this.renderer.setRenderTarget(null);
+    this._quad.render(this.renderer);
   }
 
   splat(point, value, radius = 0.02) {
-    const uniforms = this._splatMaterial.uniforms;
-    uniforms.uVelocity.value = this.velocity.read.texture;
-    uniforms.uPoint.value.copy(point);
-    uniforms.uValue.value.copy(value);
-    uniforms.uRadius.value = radius;
+    this._u.splatVelocity.value = this.velocity.read.texture;
+    this._u.splatPoint.value.copy(point);
+    this._u.splatValue.value.copy(value);
+    this._u.splatRadius.value = radius;
 
     this.runPass(this._splatMaterial, this.velocity.write);
     this.velocity.swap();
-  }
-
-  debugRenderVelocity() {
-    this._visualizeMaterial.uniforms.uVelocity.value = this.velocity.read.texture;
-    this.runPass(this._visualizeMaterial, null);
+    this.renderer.setRenderTarget(null);
   }
 
   advectVelocity(dt) {
-    const uniforms = this._advectMaterial.uniforms;
-    uniforms.uVelocity.value = this.velocity.read.texture;
-    uniforms.uSource.value = this.velocity.read.texture;
+    this._u.advectVelocity.value = this.velocity.read.texture;
+    this._u.advectSource.value = this.velocity.read.texture;
     // Scaled down from the real dt so the flow drifts across the screen at a
     // slower, more graceful pace, independent of dissipation (lifespan) and
     // curl strength (energy/roundness). speedMultiplier is the live UI knob
     // on top of that tuned base pace.
-    uniforms.uDt.value = dt * 0.6 * this.speedMultiplier;
+    this._u.advectDt.value = dt * 0.6 * this.speedMultiplier;
 
     this.runPass(this._advectMaterial, this.velocity.write);
     this.velocity.swap();
   }
 
   computeCurl() {
-    this._curlMaterial.uniforms.uVelocity.value = this.velocity.read.texture;
+    this._u.curlVelocity.value = this.velocity.read.texture;
     this.runPass(this._curlMaterial, this.curl);
   }
 
   applyVorticityConfinement(dt) {
-    const uniforms = this._vorticityConfinementMaterial.uniforms;
-    uniforms.uVelocity.value = this.velocity.read.texture;
-    uniforms.uCurl.value = this.curl.texture;
-    uniforms.uDt.value = dt;
+    this._u.vorticityVelocity.value = this.velocity.read.texture;
+    this._u.vorticityCurl.value = this.curl.texture;
+    this._u.vorticityDt.value = dt;
 
     this.runPass(this._vorticityConfinementMaterial, this.velocity.write);
     this.velocity.swap();
   }
 
   computeDivergence() {
-    this._divergenceMaterial.uniforms.uVelocity.value = this.velocity.read.texture;
+    this._u.divergenceVelocity.value = this.velocity.read.texture;
     this.runPass(this._divergenceMaterial, this.divergence);
   }
 
   solvePressure() {
-    this._clearPressureMaterial.uniforms.uPressure.value = this.pressure.read.texture;
+    this._u.clearPressure.value = this.pressure.read.texture;
     this.runPass(this._clearPressureMaterial, this.pressure.write);
     this.pressure.swap();
 
-    const uniforms = this._pressureMaterial.uniforms;
-    uniforms.uDivergence.value = this.divergence.texture;
+    this._u.pressureDivergence.value = this.divergence.texture;
     for (let i = 0; i < this.pressureIterations; i++) {
-      uniforms.uPressure.value = this.pressure.read.texture;
+      this._u.pressure.value = this.pressure.read.texture;
       this.runPass(this._pressureMaterial, this.pressure.write);
       this.pressure.swap();
     }
   }
 
   subtractPressureGradient() {
-    const uniforms = this._gradientSubtractMaterial.uniforms;
-    uniforms.uVelocity.value = this.velocity.read.texture;
-    uniforms.uPressure.value = this.pressure.read.texture;
+    this._u.gradientVelocity.value = this.velocity.read.texture;
+    this._u.gradientPressure.value = this.pressure.read.texture;
 
     this.runPass(this._gradientSubtractMaterial, this.velocity.write);
     this.velocity.swap();
@@ -256,5 +214,6 @@ export class FluidSim {
     this.computeDivergence();
     this.solvePressure();
     this.subtractPressureGradient();
+    this.renderer.setRenderTarget(null);
   }
 }

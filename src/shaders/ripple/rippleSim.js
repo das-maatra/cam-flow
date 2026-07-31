@@ -1,59 +1,50 @@
-// Number of simultaneous drops the shader accepts -- must match MAX_DROPS in
-// RippleSim.js.
-const MAX_DROPS = 40;
+import { Fn, If, Loop, uv, vec2, vec4, float, length, oneMinus } from 'three/tsl';
 
-// GLSL ES 1.00 (what WebGL1 mobile GPUs run) has historically inconsistent
-// driver support for dynamically indexing a uniform array with a loop
-// variable in a fragment shader -- some drivers just silently read index 0
-// every time. Unrolling with literal constant indices sidesteps that
-// entirely instead of looping over uDropPoints[i].
-const dropBlocks = Array.from({ length: MAX_DROPS }, (_, i) => `
-  if (uDropCount > ${i}) {
-    vec2 p${i} = vUv - uDropPoints[${i}];
-    p${i}.x *= uAspectRatio;
-    float d${i} = length(p${i});
-    if (d${i} < uDropRadii[${i}]) {
-      next += uDropStrengths[${i}] * (1.0 - d${i} / uDropRadii[${i}]);
-    }
-  }
-`).join('\n');
+// One step of the wave equation, plus this frame's queued drops.
+//
+// The old GLSL version generated 40 unrolled `if (uDropCount > i)` blocks with
+// literal indices, because GLSL ES 1.00 drivers could silently mis-handle
+// dynamic indexing into a uniform array. WGSL has no such defect, so this is a
+// plain loop over the drop arrays -- the unrolling machinery is gone.
+export const rippleSimNode = ({
+    state, texelSize, dropPoints, dropRadii, dropStrengths, dropCount, aspect, smoothing,
+}) => Fn(() => {
+    const ts = texelSize;
 
-export const fragmentShader = `
-varying vec2 vUv;
+    // R = current height, G = previous height
+    const centre = state.sample(uv());
+    const curr = centre.r;
+    const prev = centre.g;
 
-uniform sampler2D uState;
-uniform vec2 uTexelSize;
-uniform vec2 uDropPoints[${MAX_DROPS}];
-uniform float uDropRadii[${MAX_DROPS}];
-uniform float uDropStrengths[${MAX_DROPS}];
-uniform int uDropCount;
-uniform float uAspectRatio;
-uniform float uSmoothing;
+    const n = state.sample(uv().add(vec2(0, ts.y))).r;
+    const s = state.sample(uv().sub(vec2(0, ts.y))).r;
+    const e = state.sample(uv().add(vec2(ts.x, 0))).r;
+    const w = state.sample(uv().sub(vec2(ts.x, 0))).r;
+    const ne = state.sample(uv().add(vec2(ts.x, ts.y))).r;
+    const nw = state.sample(uv().add(vec2(ts.x.negate(), ts.y))).r;
+    const se = state.sample(uv().add(vec2(ts.x, ts.y.negate()))).r;
+    const sw = state.sample(uv().sub(vec2(ts.x, ts.y))).r;
 
-void main(){
-  vec2 ts = uTexelSize;
+    // 8-neighbour weighted average (diagonals at half weight, normalised by 6)
+    const avg = n.add(s).add(e).add(w)
+        .add(ne.add(nw).add(se).add(sw).mul(0.5))
+        .div(6);
 
-  // R = current height, G = previous height
-  float curr = texture2D(uState, vUv).r;
-  float prev = texture2D(uState, vUv).g;
+    const next = smoothing.mul(avg)
+        .add(float(2).sub(smoothing).mul(curr))
+        .sub(prev)
+        .mul(0.92)
+        .toVar();
 
-  // 8-neighbour weighted average (diagonals at half weight, normalised by 6)
-  float n  = texture2D(uState, vUv + vec2( 0.0,  ts.y)).r;
-  float s  = texture2D(uState, vUv + vec2( 0.0, -ts.y)).r;
-  float e  = texture2D(uState, vUv + vec2( ts.x,  0.0)).r;
-  float w  = texture2D(uState, vUv + vec2(-ts.x,  0.0)).r;
-  float ne = texture2D(uState, vUv + vec2( ts.x,  ts.y)).r;
-  float nw = texture2D(uState, vUv + vec2(-ts.x,  ts.y)).r;
-  float se = texture2D(uState, vUv + vec2( ts.x, -ts.y)).r;
-  float sw = texture2D(uState, vUv + vec2(-ts.x, -ts.y)).r;
+    Loop(dropCount, ({ i }) => {
+        const d = uv().sub(dropPoints.element(i));
+        const p = vec2(d.x.mul(aspect), d.y);
+        const dist = length(p);
+        const radius = dropRadii.element(i);
+        If(dist.lessThan(radius), () => {
+            next.addAssign(dropStrengths.element(i).mul(oneMinus(dist.div(radius))));
+        });
+    });
 
-  float avg  = ((n + s + e + w) + 0.5 * (ne + nw + se + sw)) / 6.0;
-  float c2   = uSmoothing;
-  float next = c2 * avg + (2.0 - c2) * curr - prev;
-  next *= 0.92;
-
-  ${dropBlocks}
-
-  gl_FragColor = vec4(next, curr, 0.0, 1.0);
-}
-`;
+    return vec4(next, curr, 0, 1);
+})();
