@@ -71,6 +71,16 @@ export class SceneRenderer {
     this.scene.add(this.quad);
   }
 
+  // Parents an overlay to the video quad rather than the scene, so it
+  // inherits fitToVideo()'s cover-fit scale and mirror()'s flip and lands in
+  // the same space as the video pixels -- including after a camera switch,
+  // with no fit maths repeated on the overlay's side. Local coordinates
+  // -1..1 therefore span exactly the visible video.
+  addToVideoPlane(object) {
+    object.renderOrder = 1; // drawn after the composited video beneath it
+    this.quad.add(object);
+  }
+
   setMode(mode) {
     this.quad.material = mode === 'ripple' ? this.rippleMaterial : this.material;
     // Fluid mode treats the ripple as a faint trailing layer behind the

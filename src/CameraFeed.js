@@ -2,8 +2,17 @@ export class CameraFeed {
   constructor(video) {
     this.video = video;
     this.isFrontFacing = false;
+    this.hasFacingInfo = false;
     this.facingMode = 'environment';
     this.onSwitch = null;
+  }
+
+  // A desktop webcam sits in the screen you're facing, so it wants the same
+  // mirror treatment as a phone's front camera -- without it, moving your
+  // hand right pushes the fluid left. A phone's rear camera points away from
+  // you and must stay unflipped, which is the one case left unmirrored.
+  get shouldMirror() {
+    return this.isFrontFacing || !this.hasFacingInfo;
   }
 
   async start() {
@@ -39,7 +48,14 @@ export class CameraFeed {
       }
 
       const track = stream.getVideoTracks()[0];
-      this.isFrontFacing = track.getSettings().facingMode === 'user';
+      const settings = track.getSettings();
+      this.isFrontFacing = settings.facingMode === 'user';
+      // Phones always report which way the camera points; desktop webcams
+      // don't report facingMode at all (some browsers omit the key, others
+      // return ''), so its absence is what identifies a desktop machine --
+      // more reliable than sniffing the user agent, and it comes from the
+      // same call we already make.
+      this.hasFacingInfo = Boolean(settings.facingMode);
     } catch (err) {
       document.body.innerText = `Camera error: ${err.message}`;
     }

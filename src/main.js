@@ -6,6 +6,7 @@ import { RippleSim } from './RippleSim.js';
 import { HandSplatter } from './HandSplatter.js';
 import { ModeToggle } from './ModeToggle.js';
 import { BodySegmenter } from './BodySegmenter.js';
+import { ParticleSystem } from './ParticleSystem.js';
 
 const video = document.getElementById('camera');
 
@@ -18,7 +19,7 @@ const bodySegmenter = new BodySegmenter();
 await Promise.all([handTracker.init(), bodySegmenter.init()]);
 await cameraFeed.start();
 sceneRenderer.fitToVideo();
-if (cameraFeed.isFrontFacing) {
+if (cameraFeed.shouldMirror) {
   sceneRenderer.mirror();
 }
 
@@ -27,7 +28,7 @@ if (cameraFeed.isFrontFacing) {
 // flipped.
 cameraFeed.onSwitch = () => {
   sceneRenderer.fitToVideo();
-  if (cameraFeed.isFrontFacing) {
+  if (cameraFeed.shouldMirror) {
     sceneRenderer.mirror();
   }
 };
@@ -38,6 +39,9 @@ const fluidSim = new FluidSim(sceneRenderer.renderer, {
 const rippleSim = new RippleSim(sceneRenderer.renderer, {
   aspect: video.videoWidth / video.videoHeight,
 });
+
+const particleSystem = new ParticleSystem({ count: 5000 });
+sceneRenderer.addToVideoPlane(particleSystem.points);
 
 const modeToggle = new ModeToggle({
   initialMode: 'combined',
@@ -64,6 +68,13 @@ multiFingerBtn.classList.toggle('active', handSplatter.multiFingerEnabled);
 multiFingerBtn.addEventListener('click', () => {
   handSplatter.multiFingerEnabled = !handSplatter.multiFingerEnabled;
   multiFingerBtn.classList.toggle('active', handSplatter.multiFingerEnabled);
+});
+
+const particlesBtn = document.getElementById('particles-toggle');
+particlesBtn.classList.toggle('active', particleSystem.enabled);
+particlesBtn.addEventListener('click', () => {
+  particleSystem.setEnabled(!particleSystem.enabled);
+  particlesBtn.classList.toggle('active', particleSystem.enabled);
 });
 
 const cameraToggleBtn = document.getElementById('camera-toggle');
@@ -127,6 +138,7 @@ function animate() {
   // fluid solver only steps while it's actually on screen (it's the
   // expensive one, ~19 passes per frame) -- both fluid and combined mode use it.
   rippleSim.step();
+  particleSystem.update(rippleSim);
 
   if (mode === 'fluid' || mode === 'combined') {
     fluidSim.step(dt);
